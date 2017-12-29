@@ -41,7 +41,6 @@ tf.flags.DEFINE_boolean('deeper', False, 'Activate deeper CNN model')
 
 FLAGS = tf.flags.FLAGS
 
-# 软件名英文小写+特殊手机+特殊支付 eg:qq15180864978@ wx15180864978@
 
 def train_teacher(dataset, nb_teachers, teacher_id):
   """

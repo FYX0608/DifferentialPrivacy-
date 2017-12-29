@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2016 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,17 +17,17 @@
 
 def batch_indices(batch_nb, data_length, batch_size):
   """
-  This helper function computes a batch start and end index
+  This helper function computes a batch start and end index#这个辅助函数计算一个批开始和结束索引
   :param batch_nb: the batch number
   :param data_length: the total length of the data being parsed by batches
   :param batch_size: the number of inputs in each batch
   :return: pair of (start, end) indices
   """
-  # Batch start and end index
+  # Batch start and end index批量启动和结束索引
   start = int(batch_nb * batch_size)
   end = int((batch_nb + 1) * batch_size)
 
-  # When there are not enough inputs left, we reuse some to complete the batch
+  # When there are not enough inputs left, we reuse some to complete the batch当没有足够的输入时，我们重用一些来完成批处理
   if end > data_length:
     shift = end - data_length
     start -= shift

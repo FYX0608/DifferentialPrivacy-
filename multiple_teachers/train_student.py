@@ -68,7 +68,8 @@ def ensemble_preds(dataset, nb_teachers, stdnt_data):
   #计算每个教师，每个训练点和每个输出类所产生概率的数组形式
   # Compute shape of array that will hold probabilities produced by each
   # teacher, for each training point, and each output class
-  result_shape = (nb_teachers, len(stdnt_data), FLAGS.nb_labels)
+  result_shape = (nb_teachers, len(stdnt_data), FLAGS.nb_labels)#stdnt_data:没有标记的学生的训练数据
+                                                                # nb_labels:输出类的数量
 
   # Create array that will hold result创建将保存结果的数组
   result = np.zeros(result_shape, dtype=np.float32) #numpy.zeros返回给定形状和类型的新数组，用零填充。
@@ -102,7 +103,7 @@ def prepare_student_data(dataset, nb_teachers, save=False):
                the ensemble of teachers (with Laplacian noise) as npy files.
                It also dumps the clean votes for each class (without noise) and
                the labels assigned by teachers#如果设置为True，则将教师（拉普拉斯噪声）预测的学生培
-                                              #训标签转储为npy文件，并将每个班级（无噪音）的干净选票和老师指定的标签
+                                              #训标签转储为npy文件，并将每个类（无噪音）的干净选票和老师指定的标签
   :return: pairs of (data, labels) to be used for student training and testing
   """
   assert input.create_dir_if_needed(FLAGS.train_dir)
@@ -122,19 +123,19 @@ def prepare_student_data(dataset, nb_teachers, save=False):
   assert FLAGS.stdnt_share < len(test_data)
 
   # Prepare [unlabeled] student training data (subset of test set)准备[未标记]学生训练数据(测试集的子集)
-  stdnt_data = test_data[:FLAGS.stdnt_share]
+  stdnt_data = test_data[:FLAGS.stdnt_share]#测试数据的学生共享(最后一个索引)
 
   # Compute teacher predictions for student training data 计算学生培训数据的教师预测 对我们的训练数据进行预测并存储在结果数组中
   teachers_preds = ensemble_preds(dataset, nb_teachers, stdnt_data)##3d数组(教师id、样本id、每个类的概率)
 
-  # Aggregate teacher predictions to get student training labels集合教师预测得到学生培训标签
+  # Aggregate teacher predictions to get student training labels 集合教师预测得到学生培训标签
   if not save:
     stdnt_labels = aggregation.noisy_max(teachers_preds, FLAGS.lap_scale)
   else:
     # Request clean votes and clean labels as well要求干净的选票和干净的标签
     stdnt_labels, clean_votes, labels_for_dump = aggregation.noisy_max(teachers_preds, FLAGS.lap_scale, return_clean_votes=True) #NOLINT(long-line)
 
-    # Prepare filepath for numpy dump of clean votes
+    # Prepare filepath for numpy dump of clean votes 为干净选票的numpy转储准备文件路径
     filepath = FLAGS.data_dir + "/" + str(dataset) + '_' + str(nb_teachers) + '_student_clean_votes_lap_' + str(FLAGS.lap_scale) + '.npy'  # NOLINT(long-line)
 
     # Prepare filepath for numpy dump of clean labels
@@ -146,21 +147,21 @@ def prepare_student_data(dataset, nb_teachers, save=False):
 
     # Dump labels_for_dump array
     with tf.gfile.Open(filepath_labels, mode='w') as file_obj:
-      np.save(file_obj, labels_for_dump)
+      np.save(file_obj, labels_for_dump) #将数组保存为NumPy
 
-  # Print accuracy of aggregated labels
+  # Print accuracy of aggregated labels 打印汇总标签的精度
   ac_ag_labels = metrics.accuracy(stdnt_labels, test_labels[:FLAGS.stdnt_share])
   print("Accuracy of the aggregated labels: " + str(ac_ag_labels))
 
-  # Store unused part of test set for use as a test set after student training
+  # Store unused part of test set for use as a test set after student training 在学生培训之后，存储未使用的测试集的一部分作为测试集
   stdnt_test_data = test_data[FLAGS.stdnt_share:]
   stdnt_test_labels = test_labels[FLAGS.stdnt_share:]
 
   if save:
-    # Prepare filepath for numpy dump of labels produced by noisy aggregation
+    # Prepare filepath for numpy dump of labels produced by noisy aggregation噪声聚合生成的标签的numpy转储准备filepath
     filepath = FLAGS.data_dir + "/" + str(dataset) + '_' + str(nb_teachers) + '_student_labels_lap_' + str(FLAGS.lap_scale) + '.npy' #NOLINT(long-line)
 
-    # Dump student noisy labels array
+    # Dump student noisy labels array 转储学生嘈杂的标签阵列
     with tf.gfile.Open(filepath, mode='w') as file_obj:
       np.save(file_obj, stdnt_labels)
 
@@ -182,10 +183,10 @@ def train_student(dataset, nb_teachers):
   # Call helper function to prepare student data using teacher predictions调用助手函数，使用教师预测来准备学生数据
   stdnt_dataset = prepare_student_data(dataset, nb_teachers, save=True)
 
-  # Unpack the student dataset
+  # Unpack the student dataset 打开学生的数据集
   stdnt_data, stdnt_labels, stdnt_test_data, stdnt_test_labels = stdnt_dataset
 
-  # Prepare checkpoint filename and path
+  # Prepare checkpoint filename and path 准备检查点文件名和路径
   if FLAGS.deeper:
     ckpt_path = FLAGS.train_dir + '/' + str(dataset) + '_' + str(nb_teachers) + '_student_deeper.ckpt' #NOLINT(long-line)
   else:
@@ -194,10 +195,10 @@ def train_student(dataset, nb_teachers):
   # Start student training
   assert deep_cnn.train(stdnt_data, stdnt_labels, ckpt_path)
 
-  # Compute final checkpoint name for student (with max number of steps)
+  # Compute final checkpoint name for student (with max number of steps) 计算学生的最终检查点名称（最大步数）
   ckpt_path_final = ckpt_path + '-' + str(FLAGS.max_steps - 1)
 
-  # Compute student label predictions on remaining chunk of test set
+  # Compute student label predictions on remaining chunk of test set 在剩余的测试集上计算学生标签预测
   student_preds = deep_cnn.softmax_preds(stdnt_test_data, ckpt_path_final)
 
   # Compute teacher accuracy
