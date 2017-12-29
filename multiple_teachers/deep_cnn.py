@@ -37,10 +37,18 @@ tf.app.flags.DEFINE_boolean('log_device_placement', False, """see TF doc""")
 
 
 # Constants describing the training process.
-MOVING_AVERAGE_DECAY = 0.9999     # The decay to use for the moving average.
-LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
+MOVING_AVERAGE_DECAY = 0.9999     # The decay to use for the moving average.用于移动平均的衰减
+LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.学习速率衰减系数
 
+#tf.get_variable(name,  shape, initializer): name就是变量的名称，shape是变量的维度，initializer是变量初始化的方式，初始化的方式有以下几种：
+# tf.constant_initializer：常量初始化函数
+# tf.random_normal_initializer：正态分布
+# tf.truncated_normal_initializer：截取的正态分布
+# tf.random_uniform_initializer：均匀分布
+# tf.zeros_initializer：全部是0
+# tf.ones_initializer：全是1
 
+# tf.uniform_unit_scaling_initializer：满足均匀分布，但不影响输出数量级的随机值
 def _variable_on_cpu(name, shape, initializer):
   """Helper to create a Variable stored on CPU memory.
 
@@ -53,20 +61,20 @@ def _variable_on_cpu(name, shape, initializer):
     Variable Tensor
   """
   with tf.device('/cpu:0'):
-    var = tf.get_variable(name, shape, initializer=initializer)
+    var = tf.get_variable(name, shape, initializer=initializer) #tf.get_variable得到的变量
   return var
 
 
 def _variable_with_weight_decay(name, shape, stddev, wd):
-  """Helper to create an initialized Variable with weight decay.
+  """Helper to create an initialized Variable with weight decay. #帮助创建一个有权值衰减的初始变量
 
-  Note that the Variable is initialized with a truncated normal distribution.
-  A weight decay is added only if one is specified.
+  Note that the Variable is initialized with a truncated normal distribution. #注意，变量是用截断的正态分布初始化的
+  A weight decay is added only if one is specified.  #只有在指定的情况下才添加一个权重
 
   Args:
-    name: name of the variable
-    shape: list of ints
-    stddev: standard deviation of a truncated Gaussian
+    name: name of the variable #变量的名称
+    shape: list of ints #整数列表
+    stddev: standard deviation of a truncated Gaussian #高斯的标准差
     wd: add L2Loss weight decay multiplied by this float. If None, weight
         decay is not added for this Variable.
 
@@ -74,13 +82,15 @@ def _variable_with_weight_decay(name, shape, stddev, wd):
     Variable Tensor
   """
   var = _variable_on_cpu(name, shape,
-                         tf.truncated_normal_initializer(stddev=stddev))
+                         tf.truncated_normal_initializer(stddev=stddev)) #tf.truncated_normal_initializer：截取的正态分布
   if wd is not None:
-    weight_decay = tf.multiply(tf.nn.l2_loss(var), wd, name='weight_loss')
-    tf.add_to_collection('losses', weight_decay)
+    weight_decay = tf.multiply(tf.nn.l2_loss(var), wd, name='weight_loss') #tf.multiply() 为矩阵点乘 这里指multiply这个
+                                       # 函数实现的是元素级别的相乘，也就是两个相乘的数元素各自相乘，而不是矩阵乘法，注意和tf.matmul区别
+    tf.add_to_collection('losses', weight_decay)#将value以name的名称存储在收集器(collection)中
   return var
 
 
+# 前向传播
 def inference(images, dropout=False):
   """Build the CNN model.
   Args:
@@ -94,28 +104,35 @@ def inference(images, dropout=False):
   else:
     first_conv_shape = [5, 5, 3, 64]
 
-  # conv1
+  # 声明第一层卷积层的变量并实现前向传播过程
+  # conv1 卷积层
   with tf.variable_scope('conv1') as scope:
     kernel = _variable_with_weight_decay('weights',
                                          shape=first_conv_shape,
                                          stddev=1e-4,
                                          wd=0.0)
-    conv = tf.nn.conv2d(images, kernel, [1, 1, 1, 1], padding='SAME')
+    conv = tf.nn.conv2d(images, kernel, [1, 1, 1, 1], padding='SAME') # 卷积遍历各方向步数为1，SAME：边缘外自动补0，遍历相乘
     biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
-    bias = tf.nn.bias_add(conv, biases)
-    conv1 = tf.nn.relu(bias, name=scope.name)
+    bias = tf.nn.bias_add(conv, biases) #这个函数的作用的将偏差项biases加到conv  我的理解：对于每一个卷积核都有一个对应的偏置量。
+    conv1 = tf.nn.relu(bias, name=scope.name)  # 图片乘以卷积核，并加上偏执量，
+    #在神经网络中，我们有很多的非线性函数来作为激活函数，比如连续的平滑非线性函数（sigmoid，tanh和softplus），
+    # 连续但不平滑的非线性函数（relu，relu6和relu_x）和随机正则化函数（dropout）。
+    #所有的激活函数都是单独应用在每个元素上面的，并且输出张量的维度和输入张量的维度一样。
+    #tf.nn.relu(features, name = None)  解释：这个函数的作用是计算激活函数relu，即max(features, 0)。
+
     if dropout:
       conv1 = tf.nn.dropout(conv1, 0.3, seed=FLAGS.dropout_seed)
 
 
-  # pool1
+  # pool1 池化层
+  # 池化卷积结果（conv2d）池化层采用kernel大小为3*3，步数也为2，周围补0，取最大值。
   pool1 = tf.nn.max_pool(conv1,
                          ksize=[1, 3, 3, 1],
                          strides=[1, 2, 2, 1],
                          padding='SAME',
                          name='pool1')
 
-  # norm1
+  # norm1 归一化层
   norm1 = tf.nn.lrn(pool1,
                     4,
                     bias=1.0,
@@ -155,6 +172,7 @@ def inference(images, dropout=False):
   # local3
   with tf.variable_scope('local3') as scope:
     # Move everything into depth so we can perform a single matrix multiply.
+    #把所有的东西都移到深度，这样我们就能做一个矩阵乘法
     reshape = tf.reshape(pool2, [FLAGS.batch_size, -1])
     dim = reshape.get_shape()[1].value
     weights = _variable_with_weight_decay('weights',
@@ -165,6 +183,9 @@ def inference(images, dropout=False):
     local3 = tf.nn.relu(tf.matmul(reshape, weights) + biases, name=scope.name)
     if dropout:
       local3 = tf.nn.dropout(local3, 0.5, seed=FLAGS.dropout_seed)
+      # dropout操作，减少过拟合，其实就是降低上一层某些输入的权重scale，甚至置为0，
+      # 升高某些输入的权值，甚至置为2，防止评测曲线出现震荡，个人觉得样本较少时很必要
+
 
   # local4
   with tf.variable_scope('local4') as scope:
@@ -429,8 +450,8 @@ def train_op_fun(total_loss, global_step):
 
 def _input_placeholder():
   """
-  This helper function declares a TF placeholder for the graph input data
-  :return: TF placeholder for the graph input data
+  This helper function declares a TF placeholder for the graph input data #这个辅助函数声明了图形输入数据的TF占位符
+  :return: TF placeholder for the graph input data #图输入数据的TF占位符
   """
   if FLAGS.dataset == 'mnist':
     image_size = 28
@@ -441,15 +462,15 @@ def _input_placeholder():
 
   # Declare data placeholder
   train_node_shape = (FLAGS.batch_size, image_size, image_size, num_channels)
-  return tf.placeholder(tf.float32, shape=train_node_shape)
+  return tf.placeholder(tf.float32, shape=train_node_shape) #返回一个Tensor可能被用作提供一个值的句柄，但不直接评估。
 
 
 def train(images, labels, ckpt_path, dropout=False):
   """
   This function contains the loop that actually trains the model.#这个函数包含实际训练模型的循环
-  :param images: a numpy array with the input data#一个带有输入数据的numpy数组
-  :param labels: a numpy array with the output labels#一个带有输出标签的numpy数组
-  :param ckpt_path: a path (including name) where model checkpoints are saved#保存模型检查点的路径(包括名称)
+  :param images: a numpy array with the input data #一个带有输入数据的numpy数组
+  :param labels: a numpy array with the output labels #一个带有输出标签的numpy数组
+  :param ckpt_path: a path (including name) where model checkpoints are saved #保存模型检查点的路径(包括名称)
   :param dropout: Boolean, whether to use dropout or not
   :return: True if everything went well
   """
@@ -483,7 +504,7 @@ def train(images, labels, ckpt_path, dropout=False):
     if FLAGS.deeper:
       logits = inference_deeper(train_data_node, dropout=dropout)
     else:
-      logits = inference(train_data_node, dropout=dropout)
+      logits = inference(train_data_node, dropout=dropout) #构建CNN模型
 
     # Calculate loss计算损失
     loss = loss_fun(logits, train_labels_node)
@@ -560,42 +581,43 @@ def softmax_preds(images, ckpt_path, return_logits=False):
   :param logits: if set to True, return logits instead of probabilities
   :return: probabilities (or logits if logits is set to True)
   """
-  # Compute nb samples and deduce nb of batches
+  # Compute nb samples and deduce nb of batches 计算nb样本，并推导出批量nb
   data_length = len(images)
   nb_batches = math.ceil(len(images) / FLAGS.batch_size)
 
-  # Declare data placeholder
+  # Declare data placeholder 申报数据占位符
   train_data_node = _input_placeholder()
 
-  # Build a Graph that computes the logits predictions from the placeholder
+  # Build a Graph that computes the logits predictions from the placeholder  建立一个图表，计算出占位符的预测
   if FLAGS.deeper:
     logits = inference_deeper(train_data_node)
   else:
-    logits = inference(train_data_node)
+    logits = inference(train_data_node) #构建CNN模型
 
   if return_logits:
     # We are returning the logits directly (no need to apply softmax)
     output = logits
   else:
-    # Add softmax predictions to graph: will return probabilities
-    output = tf.nn.softmax(logits)
+    # Add softmax predictions to graph: will return probabilities  #添加softmax预测图:将返回概率
+    output = tf.nn.softmax(logits) # tf.nn.softmax函数默认（dim=-1）是对张量最后一维的shape=(p,)向量进行softmax计算，得到一个概率向量。
 
-  # Restore the moving average version of the learned variables for eval.
-  variable_averages = tf.train.ExponentialMovingAverage(MOVING_AVERAGE_DECAY)
+   #滑动平均模型
+  # Restore the moving average version of the learned variables for eval. 为eval恢复学习变量的移动平均版本。
+  variable_averages = tf.train.ExponentialMovingAverage(MOVING_AVERAGE_DECAY)  #  定义一个滑动平均的类（class）。初始化时给定了衰减率（0.99）和控制衰减率的变量step。
   variables_to_restore = variable_averages.variables_to_restore()
-  saver = tf.train.Saver(variables_to_restore)
+  saver = tf.train.Saver(variables_to_restore) # 在所有可训练的变量上使用滑动平均
 
   # Will hold the result
-  preds = np.zeros((data_length, FLAGS.nb_labels), dtype=np.float32)
+  preds = np.zeros((data_length, FLAGS.nb_labels), dtype=np.float32) #返回给定形状和类型的新数组，填充零。
 
   # Create TF session
-  with tf.Session() as sess:
+  with tf.Session() as sess:#建立会话
     # Restore TF session from checkpoint file
-    saver.restore(sess, ckpt_path)
+    saver.restore(sess, ckpt_path) #测试阶段使用saver.restore()方法恢复变量
 
-    # Parse data by batch
+    # Parse data by batch解析数据批处理
     for batch_nb in xrange(0, int(nb_batches+1)):
-      # Compute batch start and end indices
+      # Compute batch start and end indices 计算批量开始和结束索引
       start, end = utils.batch_indices(batch_nb, data_length, FLAGS.batch_size)
 
       # Prepare feed dictionary
@@ -605,7 +627,7 @@ def softmax_preds(images, ckpt_path, return_logits=False):
       preds[start:end, :] = sess.run([output], feed_dict=feed_dict)[0]
 
   # Reset graph to allow multiple calls
-  tf.reset_default_graph()
+  tf.reset_default_graph()#清除默认图的堆栈，并设置全局图为默认图
 
   return preds
 
