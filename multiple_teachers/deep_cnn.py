@@ -61,20 +61,20 @@ def _variable_on_cpu(name, shape, initializer):
     Variable Tensor
   """
   with tf.device('/cpu:0'):
-    var = tf.get_variable(name, shape, initializer=initializer) #tf.get_variable得到的变量
+    var = tf.get_variable(name, shape, initializer=initializer) #tf.get_variable 用来获取或创建一个变量
   return var
 
 
 def _variable_with_weight_decay(name, shape, stddev, wd):
-  """Helper to create an initialized Variable with weight decay. #帮助创建一个有权值衰减的初始变量
+  """Helper to create an initialized Variable with weight decay.  #帮助创建一个权值衰减的初始变量
 
   Note that the Variable is initialized with a truncated normal distribution. #注意，变量是用截断的正态分布初始化的
-  A weight decay is added only if one is specified.  #只有在指定的情况下才添加一个权重
+  A weight decay is added only if one is specified.  #只有在指定的情况下才添加一个权重衰减
 
   Args:
     name: name of the variable #变量的名称
     shape: list of ints #整数列表
-    stddev: standard deviation of a truncated Gaussian #高斯的标准差
+    stddev: standard deviation of a truncated Gaussian #正态高斯的标准差
     wd: add L2Loss weight decay multiplied by this float. If None, weight
         decay is not added for this Variable.
 
@@ -103,6 +103,8 @@ def inference(images, dropout=False):
     first_conv_shape = [5, 5, 1, 64]
   else:
     first_conv_shape = [5, 5, 3, 64]
+    # 第一二参数值得卷积核尺寸大小，即patch，第三个参数是图像通道数，第四个参数是卷积核的数目，代表会出现多少个卷积特征图像;
+    #图像通道数：标准的数码相机有红、绿、蓝三个通道（Channels），每一种颜色的像素值在0-255之间，构成三个堆叠的二维矩阵；灰度图像则只有一个通道，可以用一个二维矩阵来表示。
 
   # 声明第一层卷积层的变量并实现前向传播过程
   # conv1 卷积层
@@ -112,7 +114,7 @@ def inference(images, dropout=False):
                                          stddev=1e-4,
                                          wd=0.0)
     conv = tf.nn.conv2d(images, kernel, [1, 1, 1, 1], padding='SAME') # 卷积遍历各方向步数为1，SAME：边缘外自动补0，遍历相乘
-    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
+    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))#tf.constant_initializer(value) 初始化一切所提供的值,
     bias = tf.nn.bias_add(conv, biases) #这个函数的作用的将偏差项biases加到conv  我的理解：对于每一个卷积核都有一个对应的偏置量。
     conv1 = tf.nn.relu(bias, name=scope.name)  # 图片乘以卷积核，并加上偏执量，
     #在神经网络中，我们有很多的非线性函数来作为激活函数，比如连续的平滑非线性函数（sigmoid，tanh和softplus），
@@ -121,7 +123,7 @@ def inference(images, dropout=False):
     #tf.nn.relu(features, name = None)  解释：这个函数的作用是计算激活函数relu，即max(features, 0)。
 
     if dropout:
-      conv1 = tf.nn.dropout(conv1, 0.3, seed=FLAGS.dropout_seed)
+      conv1 = tf.nn.dropout(conv1, 0.3, seed=FLAGS.dropout_seed) #防止过拟合
 
 
   # pool1 池化层
@@ -139,6 +141,10 @@ def inference(images, dropout=False):
                     alpha=0.001 / 9.0,
                     beta=0.75,
                     name='norm1')
+
+  #近邻归一化(Local Response Normalization)的归一化方法主要发生在不同的相邻的卷积核（经过ReLu之后）的输出之间，
+  # 即输入是发生在不同的经过ReLu之后的 feature map 中
+  #LRN归一化主要发生在不同的卷积核的输出之间。
 
   # conv2
   with tf.variable_scope('conv2') as scope:
@@ -162,7 +168,7 @@ def inference(images, dropout=False):
                     beta=0.75,
                     name='norm2')
 
-  # pool2
+  # pool2将2X2的像素降为1X1的像素
   pool2 = tf.nn.max_pool(norm2,
                          ksize=[1, 3, 3, 1],
                          strides=[1, 2, 2, 1],
@@ -173,13 +179,13 @@ def inference(images, dropout=False):
   with tf.variable_scope('local3') as scope:
     # Move everything into depth so we can perform a single matrix multiply.
     #把所有的东西都移到深度，这样我们就能做一个矩阵乘法
-    reshape = tf.reshape(pool2, [FLAGS.batch_size, -1])
+    reshape = tf.reshape(pool2, [FLAGS.batch_size, -1])#
     dim = reshape.get_shape()[1].value
     weights = _variable_with_weight_decay('weights',
                                           shape=[dim, 384],
                                           stddev=0.04,
                                           wd=0.004)
-    biases = _variable_on_cpu('biases', [384], tf.constant_initializer(0.1))
+    biases = _variable_on_cpu('biases', [384], tf.constant_initializer(0.1))#因为模型使用的是激活函数Relu，所以需要使用正态分布给参数加一点噪声，来打破完全对称并且避免0 梯度
     local3 = tf.nn.relu(tf.matmul(reshape, weights) + biases, name=scope.name)
     if dropout:
       local3 = tf.nn.dropout(local3, 0.5, seed=FLAGS.dropout_seed)
@@ -346,7 +352,7 @@ def inference_deeper(images, dropout=False):
 
 
 def loss_fun(logits, labels):
-  """Add L2Loss to all the trainable variables.
+  """Add L2Loss to all the trainable variables. 将L2Loss添加到所有可训练变量中
 
   Add summary for "Loss" and "Loss/avg".
   Args:
@@ -361,12 +367,16 @@ def loss_fun(logits, labels):
   """
 
   # Calculate the cross entropy between labels and predictions
-  labels = tf.cast(labels, tf.int64)
-  cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+  labels = tf.cast(labels, tf.int64)#转变类型
+  cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(   #把原来的神经网络输出层的softmax和交叉熵cross_entrop合在一起计算，为了追求速度
       logits=logits, labels=labels, name='cross_entropy_per_example')
 
-  # Calculate the average cross entropy loss across the batch.
-  cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
+  # Calculate the average cross entropy loss across the batch. 计算整批处理的平均交叉熵损失
+  cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')#求平均值，第二参数reduction_indices没有指定的话就在所有的元素中取平均值
+
+#tf.add_to_collection：把变量放入一个集合，把很多变量变成一个列表
+# tf.get_collection：从一个结合中取出全部变量，是一个列表
+# tf.add_n：把一个列表的东西都依次加起来
 
   # Add to TF collection for losses
   tf.add_to_collection('losses', cross_entropy_mean)
@@ -378,15 +388,17 @@ def loss_fun(logits, labels):
 
 def moving_av(total_loss):
   """
-  Generates moving average for all losses
+  Generates moving average for all losses 滑动平均模型
 
   Args:
     total_loss: Total loss from loss().
   Returns:
     loss_averages_op: op for generating moving averages of losses.
   """
-  # Compute the moving average of all individual losses and the total loss.
+  # Compute the moving average of all individual losses and the total loss. 定义一个滑动平均的类（class）。初始化时给定了衰减率（0.99）和控制衰减率的变量step。
   loss_averages = tf.train.ExponentialMovingAverage(0.9, name='avg')
+  # 定义一个更新变量滑动平均的操作。这里需要给定一个列表，每次执行这个操作时
+  # 这个列表中的变量都会被更新。
   losses = tf.get_collection('losses')
   loss_averages_op = loss_averages.apply(losses + [total_loss])
 
@@ -394,10 +406,10 @@ def moving_av(total_loss):
 
 
 def train_op_fun(total_loss, global_step):
-  """Train model.
+  """Train model.梯度下降算法优化+滑动平均模型+直方图
 
   Create an optimizer and apply to all trainable variables. Add moving
-  average for all trainable variables.
+  average for all trainable variables. #创建一个优化器并应用于所有可训练变量。 为所有可训练变量添加 滑动平均模型
 
   Args:
     total_loss: Total loss from loss().
@@ -406,7 +418,7 @@ def train_op_fun(total_loss, global_step):
   Returns:
     train_op: op for training.
   """
-  # Variables that affect learning rate.
+  # Variables that affect learning rate. 影响学习速度的变量
   nb_ex_per_train_epoch = int(60000 / FLAGS.nb_teachers)
 
   num_batches_per_epoch = nb_ex_per_train_epoch / FLAGS.batch_size
@@ -414,7 +426,7 @@ def train_op_fun(total_loss, global_step):
 
   initial_learning_rate = float(FLAGS.learning_rate) / 100.0
 
-  # Decay the learning rate exponentially based on the number of steps.
+  # Decay the learning rate exponentially based on the number of steps. 根据步骤的数量，以指数形式衰减学习速率
   lr = tf.train.exponential_decay(initial_learning_rate,
                                   global_step,
                                   decay_steps,
@@ -422,22 +434,22 @@ def train_op_fun(total_loss, global_step):
                                   staircase=True)
   tf.summary.scalar('learning_rate', lr)
 
-  # Generate moving averages of all losses and associated summaries.
+  # Generate moving averages of all losses and associated summaries.滑动平均模型
   loss_averages_op = moving_av(total_loss)
 
-  # Compute gradients.
+  # Compute gradients.梯度下降算法优化
   with tf.control_dependencies([loss_averages_op]):
-    opt = tf.train.GradientDescentOptimizer(lr)
-    grads = opt.compute_gradients(total_loss)
+    opt = tf.train.GradientDescentOptimizer(lr)#作用：创建一个梯度下降优化器对象
+    grads = opt.compute_gradients(total_loss)#对于在变量列表（var_list）中的变量计算对于损失函数的梯度,这个函数返回一个（梯度，变量）对的列表，其中梯度就是相对应变量的梯度了。
 
   # Apply gradients.
-  apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
+  apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)#作用：把梯度“应用”（Apply）到变量上面去。其实就是按照梯度下降的方式加到上面去。
 
-  # Add histograms for trainable variables.
+  # Add histograms for trainable variables.为可训练变量添加直方图
   for var in tf.trainable_variables():
     tf.summary.histogram(var.op.name, var)
 
-  # Track the moving averages of all trainable variables.
+  # Track the moving averages of all trainable variables.跟踪所有可训练变量的移动平均值
   variable_averages = tf.train.ExponentialMovingAverage(
       MOVING_AVERAGE_DECAY, global_step)
   variables_averages_op = variable_averages.apply(tf.trainable_variables())
@@ -511,14 +523,14 @@ def train(images, labels, ckpt_path, dropout=False):
 
     # Build a Graph that trains the model with one batch of examples and
     # updates the model parameters.构建一个图表，用一批示例来训练模型，并更新模型参数。
-    train_op = train_op_fun(loss, global_step)
+    train_op = train_op_fun(loss, global_step)#梯度下降算法优化+滑动平均模型+直方图
 
-    # Create a saver.
-    saver = tf.train.Saver(tf.global_variables())
+    # Create a saver.保存和恢复变量，最简单的保存和恢复模型的方法是使用tf.train.Saver 对象
+    saver = tf.train.Saver(tf.global_variables())#tf.global_variables都是获取程序中的变量，返回的值是变量的一个列表
 
     print("Graph constructed and saver created")#创建的图和保护程序
 
-    # Build an initialization operation to run below.
+    # Build an initialization operation to run below.构建一个初始化操作，以在下面运行
     init = tf.global_variables_initializer()
 
     # Create and init sessions
@@ -539,7 +551,7 @@ def train(images, labels, ckpt_path, dropout=False):
       batch_nb = step % nb_batches
 
       # Current batch start and end indices
-      start, end = utils.batch_indices(batch_nb, data_length, FLAGS.batch_size)
+      start, end = utils.batch_indices(batch_nb, data_length, FLAGS.batch_size)#计算一个批开始和结束索引
 
       # Prepare dictionnary to feed the session with
       feed_dict = {train_data_node: images[start:end],
